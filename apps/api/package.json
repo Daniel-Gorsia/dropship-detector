@@ -1,0 +1,29 @@
+{
+  "name": "@dropship/api",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "node --watch dist/index.js",
+    "start": "node dist/index.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "db:push": "drizzle-kit push"
+  },
+  "dependencies": {
+    "@dropship/core": "workspace:*",
+    "@dropship/shared": "workspace:*",
+    "@neondatabase/serverless": "^0.10.0",
+    "cors": "^2.8.5",
+    "drizzle-orm": "^0.36.0",
+    "express": "^4.19.0",
+    "express-rate-limit": "^7.4.0",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.0.0",
+    "drizzle-kit": "^0.28.0",
+    "typescript": "^5.5.0"
+  }
+}

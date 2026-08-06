@@ -1,0 +1,33 @@
+{
+  "name": "@dropship/core",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "dropship-cli": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "cli": "node --experimental-specifier-resolution=node dist/cli.js"
+  },
+  "dependencies": {
+    "groq-sdk": "^0.9.0",
+    "@dropship/shared": "workspace:*",
+    "cheerio": "1.0.0",
+    "node-fetch": "^3.3.0",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.5.0"
+  }
+}
