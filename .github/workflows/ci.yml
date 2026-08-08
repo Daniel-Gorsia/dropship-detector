@@ -24,8 +24,10 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build shared package
-        run: pnpm --filter @dropship/shared build
+      - name: Build packages (required before typecheck)
+        run: |
+          pnpm --filter @dropship/shared build
+          pnpm --filter @dropship/core build
 
       - name: Typecheck all packages
         run: pnpm typecheck

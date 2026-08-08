@@ -184,18 +184,6 @@ server.tool(
   }
 );
 
-server.tool(
-  "check_shipping_policy",
-  "Fetch and analyze the shipping/returns policy page for delivery time red flags.",
-  { url: z.string().url().describe("Store URL") },
-  async ({ url }) => {
-    const result = await checkShippingPolicy(url);
-    return {
-      content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
-    };
-  }
-);
-
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
