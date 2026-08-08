@@ -1,4 +1,4 @@
-const BASE = "/api";
+const BASE = import.meta.env["VITE_API_URL"] ?? "/api";
 
 export async function startScan(url: string): Promise<{ id: string; cached: boolean }> {
   const res = await fetch(`${BASE}/scan`, {
