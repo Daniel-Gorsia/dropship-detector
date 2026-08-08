@@ -2,9 +2,8 @@ services:
   - type: web
     name: dropship-detector-api
     runtime: node
-    rootDir: apps/api
-    buildCommand: cd ../.. && npm install -g pnpm && pnpm install && pnpm --filter @dropship/shared build && pnpm --filter @dropship/core build && pnpm --filter @dropship/api build
-    startCommand: node dist/index.js
+    buildCommand: npm install -g pnpm@8 && pnpm install && pnpm --filter @dropship/shared build && pnpm --filter @dropship/core build && pnpm --filter @dropship/api build
+    startCommand: node apps/api/dist/index.js
     envVars:
       - key: NODE_ENV
         value: production
@@ -12,9 +11,8 @@ services:
   - type: web
     name: dropship-detector-web
     runtime: static
-    rootDir: apps/web
-    buildCommand: cd ../.. && npm install -g pnpm && pnpm install && pnpm --filter @dropship/shared build && pnpm --filter @dropship/web build
-    staticPublishPath: dist
+    buildCommand: npm install -g pnpm@8 && pnpm install && pnpm --filter @dropship/shared build && pnpm --filter @dropship/web build
+    staticPublishPath: apps/web/dist
     envVars:
       - key: VITE_API_URL
         sync: false
