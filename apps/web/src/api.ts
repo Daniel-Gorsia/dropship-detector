@@ -1,3 +1,5 @@
+/// <reference types="vite/client" />
+
 const BASE = import.meta.env["VITE_API_URL"] ?? "/api";
 
 export async function startScan(url: string): Promise<{ id: string; cached: boolean }> {
