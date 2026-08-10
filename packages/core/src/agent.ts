@@ -1,6 +1,7 @@
-import Groq from "groq-sdk";
+import { generateText, tool } from "ai";
+import { createGroq } from "@ai-sdk/groq";
+import { z } from "zod";
 import type { Verdict, AgentStep, SupplierMatch } from "@dropship/shared";
-import { TOOL_DEFINITIONS } from "./tools.js";
 import { getStoreFingerprint } from "./signals/fingerprint.js";
 import { getDomainAge } from "./signals/domain-age.js";
 import { checkShippingPolicy } from "./signals/shipping.js";
@@ -46,12 +47,8 @@ Confidence: high=2+ strong signals, medium=1 strong + supporting, low=mostly wea
 Never claim a store IS dropshipping — always frame as likelihood.
 List every signal found (red flags AND legitimacy signals) in the evidence array.`;
 
-
-export async function runScan(
-  url: string,
-  config: AgentConfig
-): Promise<ScanResult> {
-  const groq = new Groq({ apiKey: config.groqApiKey });
+export async function runScan(url: string, config: AgentConfig): Promise<ScanResult> {
+  const groq = createGroq({ apiKey: config.groqApiKey });
   const maxSerpCalls = config.maxSerpCalls ?? 3;
   let serpCallsUsed = 0;
   const steps: AgentStep[] = [];
@@ -63,144 +60,111 @@ export async function runScan(
     config.onStep?.(step);
   }
 
-  const messages: Groq.Chat.ChatCompletionMessageParam[] = [
-    { role: "system", content: SYSTEM_PROMPT },
-    {
-      role: "user",
-      content: `Please analyze this URL and determine if it's a dropshipping store: ${url}`,
-    },
-  ];
-
-  for (let turn = 0; turn < 12; turn++) {
-    const response = await groq.chat.completions.create({
-      model: "llama-3.3-70b-versatile",
-      messages,
-      tools: TOOL_DEFINITIONS,
-      tool_choice: "auto",
-      max_tokens: 4096,
-    });
-
-    const message = response.choices[0]?.message;
-    if (!message) break;
-
-    // Add assistant turn to history
-    messages.push(message);
-
-    // Emit text reasoning
-    if (message.content?.trim()) {
-      emit({
-        type: "reasoning",
-        message: message.content,
-        timestamp: new Date().toISOString(),
-      });
-    }
-
-    const finishReason = response.choices[0]?.finish_reason;
-    if (finishReason !== "tool_calls" || !message.tool_calls?.length) break;
-
-    // Process all tool calls in this turn
-    for (const toolCall of message.tool_calls) {
-      const name = toolCall.function.name;
-      let inp: Record<string, unknown> = {};
-      try {
-        inp = JSON.parse(toolCall.function.arguments) as Record<string, unknown>;
-      } catch {
-        // malformed JSON — leave inp empty
-      }
-
-      emit({
-        type: "tool_call",
-        tool: name,
-        input: inp,
-        timestamp: new Date().toISOString(),
-      });
-
-      let result: unknown;
-
-      try {
-        if (name === "submit_verdict") {
-          finalVerdict = inp as unknown as Verdict;
-          emit({
-            type: "verdict",
-            output: finalVerdict,
-            timestamp: new Date().toISOString(),
-          });
-          result = { ok: true };
-        } else if (name === "get_store_fingerprint") {
-          result = await getStoreFingerprint(String(inp["url"]));
-        } else if (name === "check_domain_age") {
-          result = await getDomainAge(String(inp["url"]));
-        } else if (name === "check_shipping_policy") {
-          result = await checkShippingPolicy(String(inp["url"]));
-        } else if (name === "check_description_plagiarism") {
-          if (!config.serpApiKey) {
-            result = { error: "SerpAPI key not configured" };
-          } else if (serpCallsUsed >= maxSerpCalls) {
-            result = { error: "SerpAPI budget exhausted" };
-          } else {
-            serpCallsUsed++;
-            result = await checkDescriptionPlagiarism(
-              String(inp["url"]),
-              config.serpApiKey
-            );
-          }
-        } else if (name === "find_supplier_matches") {
-          if (!config.serpApiKey) {
-            result = { error: "SerpAPI key not configured" };
-          } else if (serpCallsUsed >= maxSerpCalls) {
-            result = { error: "SerpAPI budget exhausted" };
-          } else {
-            serpCallsUsed += 2;
-            const found = await findSupplierMatches(
-              String(inp["url"]),
-              config.serpApiKey
-            );
-            supplierMatches.push(...found);
-            result = { matches: found };
-          }
-        } else if (name === "compare_prices") {
-          if (!config.serpApiKey) {
-            result = { error: "SerpAPI key not configured" };
-          } else if (serpCallsUsed >= maxSerpCalls) {
-            result = { error: "SerpAPI budget exhausted" };
-          } else {
-            serpCallsUsed++;
-            result = { results: await googleShoppingSearch(
-              String(inp["product_title"]),
-              config.serpApiKey
-            )};
-          }
-        } else {
-          result = { error: `Unknown tool: ${name}` };
-        }
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        result = { error: message };
-        emit({
-          type: "error",
-          tool: name,
-          message,
-          timestamp: new Date().toISOString(),
-        });
-      }
-
-      emit({
-        type: "tool_result",
-        tool: name,
-        output: result,
-        timestamp: new Date().toISOString(),
-      });
-
-      // Send tool result back as a tool message
-      messages.push({
-        role: "tool",
-        tool_call_id: toolCall.id,
-        content: JSON.stringify(result),
-      });
-    }
-
-    if (finalVerdict) break;
+  function serpBudgetError(): { error: string } | null {
+    if (!config.serpApiKey) return { error: "SerpAPI key not configured" };
+    if (serpCallsUsed >= maxSerpCalls) return { error: "SerpAPI budget exhausted" };
+    return null;
   }
+
+  // Tools defined with execute functions — SDK handles the loop automatically
+  const tools = {
+    get_store_fingerprint: tool({
+      description: "Fetch the store HTML and detect platform (Shopify/WooCommerce), dropship app traces (DSers, Oberlo, Zendrop), and presence of contact info. Free signal — always run first.",
+      parameters: z.object({ url: z.string().url() }),
+      execute: async ({ url }) => getStoreFingerprint(url),
+    }),
+
+    check_domain_age: tool({
+      description: "Look up domain registration date via RDAP. Domains under 6 months old are suspicious. Free signal.",
+      parameters: z.object({ url: z.string().url() }),
+      execute: async ({ url }) => getDomainAge(url),
+    }),
+
+    check_shipping_policy: tool({
+      description: "Fetch shipping/policy pages and extract delivery estimates. Long windows (15+ days) or mentions of Chinese warehouses are red flags. Free signal.",
+      parameters: z.object({ url: z.string().url() }),
+      execute: async ({ url }) => checkShippingPolicy(url),
+    }),
+
+    check_description_plagiarism: tool({
+      description: "Take a distinctive sentence from the product description and Google-search it exactly. Many stores sharing identical copy = supplier catalog text. Costs 1 SerpAPI credit.",
+      parameters: z.object({ url: z.string().url() }),
+      execute: async ({ url }) => {
+        const err = serpBudgetError();
+        if (err) return err;
+        serpCallsUsed++;
+        return checkDescriptionPlagiarism(url, config.serpApiKey!);
+      },
+    }),
+
+    find_supplier_matches: tool({
+      description: "Reverse-image-search the product photo and title-search AliExpress to find the likely supplier listing. Returns matches with prices — 5x+ markup is a strong signal. Costs 1-2 SerpAPI credits.",
+      parameters: z.object({ url: z.string().url() }),
+      execute: async ({ url }) => {
+        const err = serpBudgetError();
+        if (err) return err;
+        serpCallsUsed += 2;
+        const found = await findSupplierMatches(url, config.serpApiKey!);
+        supplierMatches.push(...found);
+        return { matches: found };
+      },
+    }),
+
+    compare_prices: tool({
+      description: "Search the product title on Google Shopping to compare price across stores. Costs 1 SerpAPI credit.",
+      parameters: z.object({
+        product_title: z.string(),
+        store_price: z.number().optional(),
+      }),
+      execute: async ({ product_title }) => {
+        const err = serpBudgetError();
+        if (err) return err;
+        serpCallsUsed++;
+        return { results: await googleShoppingSearch(product_title, config.serpApiKey!) };
+      },
+    }),
+
+    submit_verdict: tool({
+      description: "Submit the final verdict. Call this once you have enough evidence to make a calibrated assessment.",
+      parameters: z.object({
+        score: z.number().min(0).max(100),
+        label: z.enum(["unlikely", "possible", "likely", "almost_certain"]),
+        confidence: z.enum(["low", "medium", "high"]),
+        evidence: z.array(z.object({
+          signal: z.string(),
+          finding: z.string(),
+          direction: z.enum(["dropship", "legit", "neutral"]),
+          weight: z.enum(["weak", "moderate", "strong"]),
+          sourceUrl: z.string().url().optional(),
+        })),
+        reasoning: z.string(),
+      }),
+      execute: async (args) => {
+        finalVerdict = args;
+        emit({ type: "verdict", output: finalVerdict, timestamp: new Date().toISOString() });
+        return { ok: true };
+      },
+    }),
+  };
+
+  await generateText({
+    model: groq("llama-3.3-70b-versatile"),
+    system: SYSTEM_PROMPT,
+    prompt: `Please analyze this URL and determine if it's a dropshipping store: ${url}`,
+    tools,
+    maxSteps: 10,
+    onStepFinish: ({ text, toolCalls, toolResults }) => {
+      if (text?.trim()) {
+        emit({ type: "reasoning", message: text, timestamp: new Date().toISOString() });
+      }
+      for (const tc of toolCalls ?? []) {
+        emit({ type: "tool_call", tool: tc.toolName, input: tc.args, timestamp: new Date().toISOString() });
+      }
+      for (const tr of toolResults ?? []) {
+        emit({ type: "tool_result", tool: tr.toolName, output: tr.result, timestamp: new Date().toISOString() });
+      }
+    },
+  });
 
   if (!finalVerdict) {
     finalVerdict = {

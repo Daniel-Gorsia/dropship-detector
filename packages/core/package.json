@@ -20,7 +20,8 @@
     "cli": "node --experimental-specifier-resolution=node dist/cli.js"
   },
   "dependencies": {
-    "groq-sdk": "^0.9.0",
+    "ai": "^4.0.0",
+    "@ai-sdk/groq": "^1.0.0",
     "@dropship/shared": "workspace:*",
     "cheerio": "1.0.0",
     "node-fetch": "^3.3.0",
